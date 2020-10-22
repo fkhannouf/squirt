@@ -47,12 +47,15 @@ static BPTR exec_inputFd, exec_outputFd;
 struct Library *SocketBase = 0;
 #endif
 
-
 static void
 cleanupForNextRun(void)
 {
   if (squirtd_inputFd > 0) {
+#if defined(AMIGAOS4)
+    IDOS->Close(squirtd_inputFd);
+#else
     Close(squirtd_inputFd);
+#endif
     squirtd_inputFd = 0;
   }
 
@@ -62,7 +65,11 @@ cleanupForNextRun(void)
   }
 
   if (squirtd_outputFd > 0) {
+#if defined(AMIGAOS4)
+    IDOS->Close(squirtd_outputFd);
+#else
     Close(squirtd_outputFd);
+#endif
     squirtd_outputFd = 0;
   }
 
@@ -81,12 +88,20 @@ cleanup(void)
 #endif
 
   if (squirtd_connectionFd > 0) {
+#if defined(AMIGAOS4)
+    ISocket->CloseSocket(squirtd_connectionFd);
+#else
     CloseSocket(squirtd_connectionFd);
+#endif
     squirtd_connectionFd = 0;
   }
 
   if (squirtd_listenFd > 0) {
+#if defined(AMIGAOS4)
+    ISocket->CloseSocket(squirtd_listenFd);
+#else
     CloseSocket(squirtd_listenFd);
+#endif
     squirtd_listenFd = 0;
   }
 
@@ -94,7 +109,11 @@ cleanup(void)
 
 #ifdef __GNUC__
   if (SocketBase) {
+#if defined(AMIGAOS4)
+    IExec->CloseLibrary(SocketBase);
+#else
     CloseLibrary(SocketBase);
+#endif
   }
 #endif
 }
@@ -130,10 +149,17 @@ sendU32(int fd, uint32_t status)
 static void
 exec_runner(void)
 {
+#if defined(AMIGAOS4)
+  squirtd_execError = IDOS->SystemTags((APTR)exec_command, SYS_Output, exec_outputFd, TAG_DONE, 0) == 0 ? 0 : ERROR_EXEC_FAILED;
+#else
   squirtd_execError = SystemTags((APTR)exec_command, SYS_Output, exec_outputFd, TAG_DONE, 0) == 0 ? 0 : ERROR_EXEC_FAILED;
-
+#endif
   if (exec_outputFd) {
+#if defined(AMIGAOS4)
+    IDOS->FClose(exec_outputFd);
+#else
     Close(exec_outputFd);
+#endif
   }
 }
 
@@ -150,30 +176,47 @@ exec_run(int fd, const char* command)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
+#if defined(AMIGAOS4)
+  IExec->RawDoFmt((APTR)"PIPE:%ux", // CONST_STRPTR FormatString
+#else
   RawDoFmt((APTR)"PIPE:%ux", // CONST_STRPTR FormatString
+#endif
 	   &procId,   // APTR DataStream
 	   (void (*)())&PutChProc,         // VOID_FUNC PutChProc
 	   pipe     // APTR PutChData
 	   );
 #pragma GCC diagnostic pop
 
-
+#if defined(AMIGAOS4)
+  if ((exec_outputFd = IDOS->FOpen((APTR)pipe, MODE_NEWFILE, 0)) == 0) {
+#else
   if ((exec_outputFd = Open((APTR)pipe, MODE_NEWFILE)) == 0) {
+#endif
     error = ERROR_FATAL_FAILED_TO_CREATE_OS_RESOURCE;
     goto cleanup;
   }
 
+#if defined(AMIGAOS4)
+  if ((exec_inputFd = IDOS->FOpen((APTR)pipe, MODE_OLDFILE, 0)) == 0) {
+#else
   if ((exec_inputFd = Open((APTR)pipe, MODE_OLDFILE)) == 0) {
+#endif
     error = ERROR_FATAL_FAILED_TO_CREATE_OS_RESOURCE;
     goto cleanup;
   }
 
-
+#if defined(AMIGAOS4)
+  IDOS->CreateNewProcTags(NP_Entry, (uint32_t)exec_runner, NP_Cli, 1, TAG_DONE, 0);
+#else
   CreateNewProcTags(NP_Entry, (uint32_t)exec_runner, NP_Cli, 1, TAG_DONE, 0);
-
+#endif
   char buffer[16];
   int length;
+#if defined(AMIGAOS4)
+  while ((length = IDOS->FRead(exec_inputFd, buffer, 1, sizeof(buffer))) > 0) {
+#else
   while ((length = Read(exec_inputFd, buffer, sizeof(buffer))) > 0) {
+#endif
     if (send(fd, buffer, length, 0) != length) {
       error = ERROR_FATAL_SEND_FAILED;
       goto cleanup;
@@ -192,7 +235,11 @@ exec_run(int fd, const char* command)
   }
 
   if (exec_inputFd) {
+#if defined(AMIGAOS4)
+    IDOS->FClose(exec_inputFd);
+#else
     Close(exec_inputFd);
+#endif
   }
 
   return error;
@@ -206,7 +253,11 @@ exec_dir(int fd, const char* dir)
   void* data = 0;
   uint32_t error = 0;
 
+#if defined(AMIGAOS4)
+  BPTR lock = IDOS->Lock((APTR)dir, ACCESS_READ);
+#else
   BPTR lock = Lock((APTR)dir, ACCESS_READ);
+#endif
 
   if (!lock) {
     error = ERROR_FILE_READ_FAILED;
@@ -215,7 +266,11 @@ exec_dir(int fd, const char* dir)
 
   data = malloc(BLOCK_SIZE);
 
+#if defined(AMIGAOS4)
+  eac = IDOS->AllocDosObject(DOS_EXALLCONTROL, NULL);
+#else
   eac = AllocDosObject(DOS_EXALLCONTROL, NULL);
+#endif
 
   if (!eac) {
     error = ERROR_FATAL_FAILED_TO_CREATE_OS_RESOURCE;
@@ -225,8 +280,13 @@ exec_dir(int fd, const char* dir)
   eac->eac_LastKey = 0;
   int more;
   do {
+#if defined(AMIGAOS4)
+    more = IDOS->ExAll(lock, data, BLOCK_SIZE, ED_COMMENT, eac);
+    if ((!more) && (IDOS->IoErr() != ERROR_NO_MORE_ENTRIES)) {
+#else
     more = ExAll(lock, data, BLOCK_SIZE, ED_COMMENT, eac);
     if ((!more) && (IoErr() != ERROR_NO_MORE_ENTRIES)) {
+#endif
       goto cleanup;
       break;
     }
@@ -263,15 +323,24 @@ exec_dir(int fd, const char* dir)
   }
 
   if (eac) {
+#if defined(AMIGAOS4)
+    IDOS->FreeDosObject(DOS_EXALLCONTROL,eac);
+#else
     FreeDosObject(DOS_EXALLCONTROL,eac);
+#endif
   }
 
   if (data) {
     free(data);
   }
 
+
   if (lock) {
-    UnLock(lock);
+#if defined(AMIGAOS4)
+      IDOS->UnLock(lock);
+#else
+      UnLock(lock);
+#endif
   }
 
   return error;
@@ -282,7 +351,12 @@ static uint32_t
 exec_cwd(int fd)
 {
   char name[108];
+#if defined(AMIGAOS4)
+  IDOS->NameFromLock(squirtd_proc->pr_CurrentDir, (STRPTR)name, sizeof(name)-1);
+#else
   NameFromLock(squirtd_proc->pr_CurrentDir, (STRPTR)name, sizeof(name)-1);
+#endif
+
   int32_t len = strlen(name);
 
   if (send(fd, (void*)&len, sizeof(len), 0) != sizeof(len) ||
@@ -297,24 +371,44 @@ exec_cwd(int fd)
 static uint32_t
 exec_cd(const char* dir)
 {
+#if defined(AMIGAOS4)
+  BPTR lock = IDOS->Lock((APTR)dir, ACCESS_READ);
+#else
   BPTR lock = Lock((APTR)dir, ACCESS_READ);
+#endif
 
   if (!lock) {
     return ERROR_CD_FAILED;
   }
 
   struct FileInfoBlock fileInfo;
+#if defined(AMIGAOS4)
+  IDOS->Examine(lock, &fileInfo);
+#else
   Examine(lock, &fileInfo);
+#endif
 
   if (fileInfo.fib_DirEntryType > 0) {
+#if defined(AMIGAOS4)
+    BPTR oldLock = IDOS->CurrentDir(lock);
+#else
     BPTR oldLock = CurrentDir(lock);
+#endif
 
     if (oldLock) {
-      UnLock(oldLock);
+#if defined(AMIGAOS4)
+        IDOS->UnLock(oldLock);
+#else
+        UnLock(oldLock);
+#endif
     }
     return 0;
   } else {
+#if defined(AMIGAOS4)
+    IDOS->UnLock(lock);
+#else
     UnLock(lock);
+#endif
     return ERROR_CD_FAILED;
   }
 }
@@ -326,11 +420,19 @@ file_setInfo(int fd, const char* filename)
   squirtd_file_info_t info;
   int len;
   if ((len = recv(fd, &info, sizeof(info), 0)) == sizeof(info)) {
+#if defined(AMIGAOS4)
+    if (!IDOS->SetProtection((STRPTR)filename, info.protection)) {
+#else
     if (!SetProtection((STRPTR)filename, info.protection)) {
+#endif
       return ERROR_SET_PROTECTION_FAILED;
     }
     if ((uint32_t)info.dateStamp.ds_Days != 0xFFFFFFFF) {
+#if defined(AMIGAOS4)
+      if (!IDOS->SetDate((STRPTR)filename, &info.dateStamp)) {
+#else
       if (!SetFileDate((STRPTR)filename, &info.dateStamp)) {
+#endif
 	return ERROR_SET_DATESTAMP_FAILED;
       }
     }
@@ -349,9 +451,17 @@ file_get(int fd)
     return ERROR_FATAL_RECV_FAILED;
   }
 
+#if defined(AMIGAOS4)
+  IDOS->Delete((APTR)squirtd_filename);
+#else
   DeleteFile((APTR)squirtd_filename);
+#endif
 
+#if defined(AMIGAOS4)
+  if ((squirtd_outputFd = IDOS->FOpen((APTR)squirtd_filename, MODE_NEWFILE, 0)) == 0) {
+#else
   if ((squirtd_outputFd = Open((APTR)squirtd_filename, MODE_NEWFILE)) == 0) {
+#endif
     return ERROR_FATAL_CREATE_FILE_FAILED;
   }
 
@@ -366,7 +476,11 @@ file_get(int fd)
     }
     if (length) {
       total += length;
+#if defined(AMIGAOS4)
+      if (IDOS->FWrite(squirtd_outputFd, squirtd_rxBuffer, 1, length) != length) {
+#else
       if (Write(squirtd_outputFd, squirtd_rxBuffer, length) != length) {
+#endif
 	return ERROR_FATAL_FILE_WRITE_FAILED;
       }
       timeout = 0;
@@ -385,7 +499,12 @@ file_send(int fd, char* filename)
   int32_t size = -1;
   uint32_t error = 0;
 
+#if defined(AMIGAOS4)
+  BPTR lock = IDOS->Lock((APTR)filename, ACCESS_READ);
+#else
   BPTR lock = Lock((APTR)filename, ACCESS_READ);
+#endif
+
   if (!lock) {
     if (send(fd, (void*)&size, sizeof(size), 0) != sizeof(size)) {
       return ERROR_FATAL_SEND_FAILED;
@@ -394,8 +513,13 @@ file_send(int fd, char* filename)
   }
 
   struct FileInfoBlock infoBlock;
+#if defined(AMIGAOS4)
+  IDOS->Examine(lock, &infoBlock);
+  IDOS->UnLock(lock);
+#else
   Examine(lock, &infoBlock);
   UnLock(lock);
+#endif
 
   if (infoBlock.fib_DirEntryType > 0) {
     size = -1;
@@ -409,7 +533,11 @@ file_send(int fd, char* filename)
     return ERROR_FATAL_SEND_FAILED;
   }
 
+#if defined(AMIGAOS4)
+  squirtd_inputFd = IDOS->FOpen((APTR)squirtd_filename, MODE_OLDFILE, 0);
+#else
   squirtd_inputFd = Open((APTR)squirtd_filename, MODE_OLDFILE);
+#endif
 
   if (!squirtd_inputFd) {
     return ERROR_FILE_READ_FAILED;
@@ -420,7 +548,11 @@ file_send(int fd, char* filename)
   int32_t total = 0;
   do {
     int len;
+#if defined(AMIGAOS4)
+    if ((len = IDOS->FRead(squirtd_inputFd, squirtd_rxBuffer, 1, BLOCK_SIZE) ) < 0) {
+#else
     if ((len = Read(squirtd_inputFd, squirtd_rxBuffer, BLOCK_SIZE) ) < 0) {
+#endif
       return ERROR_FILE_READ_FAILED;
     } else {
       if (send(fd, squirtd_rxBuffer, len, 0) != len) {
@@ -449,7 +581,11 @@ inetd_getSocket(struct Process* me)
     return -1;
   }
 
+#if defined(AMIGAOS4)
+  sock = ISocket->ObtainSocket(dm->dm_ID, dm->dm_Family, dm->dm_Type, 0);
+#else
   sock = ObtainSocket(dm->dm_ID, dm->dm_Family, dm->dm_Type, 0);
+#endif
 
 #ifdef DEBUG_LOG
   fprintf(log_fd, "ObtainSocket = %d\n", sock);
@@ -472,7 +608,11 @@ main(int argc, char **argv)
   uint32_t inetd = 0;
   uint32_t error;
 
+#if defined(AMIGAOS4)
+  squirtd_proc = (struct Process*)IExec->FindTask(NULL);
+#else
   squirtd_proc = (struct Process*)SysBase->ThisTask;
+#endif
 
 #ifdef DEBUG_LOG
   struct Task* task = SysBase->ThisTask;
@@ -489,7 +629,12 @@ main(int argc, char **argv)
   squirtd_proc->pr_WindowPtr = (APTR)-1; // disable requesters
 
 #ifdef __GNUC__
+#if defined(AMIGAOS4)
+  SocketBase = IExec->OpenLibrary((APTR)"bsdsocket.library", 4);
+#else
   SocketBase = OpenLibrary((APTR)"bsdsocket.library", 4);
+#endif
+
   if (!SocketBase) {
     fatalError("failed to open bsdsocket.library");
   }
@@ -603,7 +748,12 @@ main(int argc, char **argv)
   cleanupForNextRun();
 
   if (squirtd_connectionFd > 0) {
+#if defined(AMIGAOS4)
+    ISocket->CloseSocket(squirtd_connectionFd);
+#else
     CloseSocket(squirtd_connectionFd);
+#endif
+
     squirtd_connectionFd = 0;
   }
 

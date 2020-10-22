@@ -21,9 +21,19 @@ commandName(struct Process *proc)
 static void
 sendCtrlC(int cliNum)
 {
+#if defined(AMIGAOS4)
+  struct Process * proc = IDOS->FindCliProc(cliNum);
+#else
   struct Process * proc =  FindCliProc(cliNum);
+#endif
+
+#if defined(AMIGAOS4)
+  IDOS->Printf((APTR)"Sending Ctrl-C to %s (%s)\n", (int)proc->pr_Task.tc_Node.ln_Name, (int)(char*)commandName(proc));
+  IExec->Signal((struct Task*)proc, SIGBREAKF_CTRL_C);
+#else
   Printf((APTR)"Sending Ctrl-C to %s (%s)\n", (int)proc->pr_Task.tc_Node.ln_Name, (int)(char*)commandName(proc));
   Signal((struct Task*)proc, SIGBREAKF_CTRL_C);
+#endif
 }
 
 static int32_t
@@ -67,15 +77,28 @@ main(int argc, char **argv)
   int error = 0;
 
   if (argc != 2) {
+#if defined(AMIGAOS4)
+    IDOS->Printf((APTR)"usage: %s Cli#\n", (int)argv[0]);
+#else
     Printf((APTR)"usage: %s Cli#\n", (int)argv[0]);
+#endif
     return 1;
   }
 
+#if defined(AMIGAOS4)
+  IExec->Forbid();
+#else
   Forbid();
+#endif
 
   int cliNum = _atoi(argv[1]);
+#if defined(AMIGAOS4)
+  if (cliNum < 1 || cliNum > (int)IDOS->MaxCli()) {
+    IDOS->Printf((APTR)"%s: invalid Cli#\n", (int)argv[0]);
+#else
   if (cliNum < 1 || cliNum > (int)MaxCli()) {
     Printf((APTR)"%s: invalid Cli#\n", (int)argv[0]);
+#endif
     error = 2;
     goto exit;
   } else {
@@ -83,6 +106,10 @@ main(int argc, char **argv)
   }
 
   exit:
+#if defined(AMIGAOS4)
+  IExec->Permit();
+#else
   Permit();
+#endif
   return error;
 }

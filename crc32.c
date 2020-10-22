@@ -2,11 +2,7 @@
 
 #include "crc32.h"
 #include <stdint.h>
-#ifdef AMIGA
-#include <proto/dos.h>
-#else
 #include <stdio.h>
-#endif
 
 typedef struct crc32ctx
 {
@@ -102,28 +98,17 @@ static char buffer[4096];
 int
 crc32_sum(const char* filename, uint32_t *outCrc)
 {
-#ifdef AMIGA
-  int fd = Open((APTR)filename, MODE_OLDFILE);
-  if (!fd) {
-    return -1;
-  }
-#else
   FILE* fp = fopen(filename, "rb");
   if (!fp) {
     return -1;
   }
-#endif
 
   int len;
 
   crc32_ctx_t crc;
   crc32_init(&crc);
 
-#ifdef AMIGA
-  while((len = Read(fd, buffer, sizeof(buffer))) > 0) {
-#else
   while((len = fread(buffer, 1, sizeof(buffer), fp))) {
-#endif
     char* ptr = buffer;
     while (len--) {
       crc32_computeUint8(&crc, *ptr++);
@@ -133,10 +118,6 @@ crc32_sum(const char* filename, uint32_t *outCrc)
   crc32_finilize(&crc);
 
   *outCrc = crc.crc;
-#ifdef AMIGA
-  Close(fd);
-#else
   fclose(fp);
-#endif
   return 0;
 }
